@@ -20,23 +20,27 @@ class ArxivReport:
 
     def _build_date_filter(self, start_date: Optional[str], end_date: Optional[str]) -> str:
         date_filters = []
-
-        if start_date:
+        if not start_date:
+            start_formatted = "199501010000"
+        else:
             try:
                 datetime.strptime(start_date, '%Y-%m-%d')
                 start_formatted = start_date.replace("-", "") + "0000"
-                date_filters.append(f'submittedDate:[{start_formatted}* TO *]')
             except ValueError:
-                raise ValueError(f"Invalid start date format: {start_date}. Use YYYY-MM-DD")
+                raise ValueError(f"Invalid end date format: {start_date}. Use YYYY-MM-DD")
 
-        if end_date:
+        if not end_date:
+            end_formatted = datetime.today().strftime("%Y%m%d%H%M")
+        else:
             try:
                 datetime.strptime(end_date, '%Y-%m-%d')
-                end_formatted = end_date.replace("-", "") + "2359"
-                date_filters.append(f'submittedDate:[* TO {end_formatted}*]')
+                end_formatted = end_date.replace("-", "") + "0000"
             except ValueError:
                 raise ValueError(f"Invalid end date format: {end_date}. Use YYYY-MM-DD")
 
+
+
+        date_filters.append(f'submittedDate:[{start_formatted} TO {end_formatted}]')
         return ' AND '.join(date_filters)
 
     def _parse_arxiv_response(self, xml_content: str) -> List[Dict]:
@@ -124,7 +128,7 @@ class ArxivReport:
             raise RuntimeError(f"Error processing arXiv data: {str(e)}")
 
     def search(self, query: str, start_date: Optional[str] = None, end_date: Optional[str] = None,
-               max_results: int = 10, sort_by: str = 'relevance', start: int = 0) -> List[Dict]:
+               max_results: int = 10, sort_by: str = 'submittedDate', start: int = 0) -> List[Dict]:
         params = {
             'search_query': query,
             'start': start,
