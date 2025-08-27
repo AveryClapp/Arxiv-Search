@@ -128,7 +128,7 @@ class ArxivReport:
             raise RuntimeError(f"Error processing arXiv data: {str(e)}")
 
     def search(self, query: str, start_date: Optional[str] = None, end_date: Optional[str] = None,
-               max_results: int = 10, sort_by: str = 'submittedDate', start: int = 0) -> List[Dict]:
+               max_results: int = 10, sort_by: str = 'relevance', start: int = 0) -> List[Dict]:
         params = {
             'search_query': query,
             'start': start,
