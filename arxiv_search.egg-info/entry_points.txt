@@ -1,2 +1,0 @@
-[console_scripts]
-arxiv-search = arxiv_search:main
