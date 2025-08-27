@@ -16,5 +16,5 @@ dependencies = [
 
 [project.scripts]
 arxiv-search = "arxiv_search:main"
-get-categories = "arxiv_search:categories"
-get-domains = "arxiv_search:domains"
+categories = "arxiv_search:categories"
+domains = "arxiv_search:domains"
