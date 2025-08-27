@@ -192,8 +192,74 @@ class ArxivReport:
                 paper['has_citations'] = False
             return papers
 
+    def get_historical_popular_papers(self, query: str, start_date: Optional[str] = None,
+                                      end_date: Optional[str] = None, max_results: int = 10) -> List[Dict]:
+        """
+        Search through historical papers to find the most cited ones.
+        Searches in batches across different time periods to find highly cited papers.
+        """
+        if not end_date:
+            end_date = "2020-12-31"  # Focus on papers old enough to have citations
+        if not start_date:
+            start_date = "1990-01-01"  # Go back far enough for landmark papers
+
+        logger.info(f"Searching for highly cited papers from {start_date} to {end_date}")
+
+        all_cited_papers = []
+        batch_size = 50
+        max_total_papers = min(max_results * 20, 300)  # Search more papers to find highly cited ones
+
+        # Search in batches to get a good sample of papers
+        for start_idx in range(0, max_total_papers, batch_size):
+            try:
+                batch_papers = self.search(
+                    query=query,
+                    start_date=start_date,
+                    end_date=end_date,
+                    max_results=batch_size,
+                    sort_by='submittedDate',
+                    start=start_idx
+                )
+
+                if not batch_papers:
+                    break
+
+                logger.info(f"Processing batch {start_idx//batch_size + 1}, found {len(batch_papers)} papers")
+
+                # Get citations for this batch
+                cited_batch = self.citation_manager.get_citations_batch(batch_papers, max_workers=1)
+
+                # Only keep papers with citations > 0
+                cited_papers = [p for p in cited_batch if p.get('citation_count', 0) > 0]
+                all_cited_papers.extend(cited_papers)
+
+                # If we have enough good papers, we can stop early
+                if len([p for p in all_cited_papers if p.get('citation_count', 0) >= 10]) >= max_results:
+                    logger.info(f"Found enough highly cited papers, stopping search")
+                    break
+
+            except Exception as e:
+                logger.error(f"Error in batch {start_idx//batch_size + 1}: {str(e)}")
+                continue
+
+        # Sort all papers by citation count
+        all_cited_papers.sort(key=lambda x: x.get('citation_count', 0), reverse=True)
+
+        # Return top papers
+        top_papers = all_cited_papers[:max_results]
+
+        if top_papers:
+            highest_citations = top_papers[0].get('citation_count', 0)
+            avg_citations = sum(p.get('citation_count', 0) for p in top_papers) / len(top_papers)
+            logger.info(f"Found {len(top_papers)} highly cited papers. Highest: {highest_citations}, Average: {avg_citations:.1f}")
+
+        return top_papers
     def get_popular_papers(self, query: str, start_date: Optional[str] = None,
                            end_date: Optional[str] = None, max_results: int = 10) -> List[Dict]:
+        """
+        Get recent papers sorted by popularity (citation count).
+        Uses recent papers and limited search for faster results.
+        """
         initial_results = min(max_results * 3, 50)
         max_citation_papers = min(initial_results, 15)
 
