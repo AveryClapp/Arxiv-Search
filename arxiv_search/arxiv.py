@@ -1,9 +1,12 @@
 import requests
 import xml.etree.ElementTree as ET
-from urllib.parse import urlencode, quote
 from datetime import datetime
 from typing import List, Dict, Optional
 import re
+import logging
+from arxiv_search.citations import CitationManager
+
+logger = logging.getLogger(__name__)
 
 class ArxivReport:
     BASE_URL = "http://export.arxiv.org/api/query"
@@ -13,6 +16,7 @@ class ArxivReport:
         self.session.headers.update({
             'User-Agent': 'ArxivSearch/1.0 (Python/requests)'
         })
+        self.citation_manager = CitationManager()
 
     def _build_date_filter(self, start_date: Optional[str], end_date: Optional[str]) -> str:
         date_filters = []
@@ -71,7 +75,6 @@ class ArxivReport:
                     else:
                         paper['arxiv_id'] = 'N/A'
 
-
                 published_elem = entry.find('atom:published', namespaces)
                 if published_elem is not None:
                     try:
@@ -120,21 +123,6 @@ class ArxivReport:
 
     def search(self, query: str, start_date: Optional[str] = None, end_date: Optional[str] = None,
                max_results: int = 10, sort_by: str = 'relevance', start: int = 0) -> List[Dict]:
-        """
-        Search arXiv for papers matching the given criteria.
-
-        Args:
-            query: Search query string
-            start_date: Start date filter (YYYY-MM-DD)
-            end_date: End date filter (YYYY-MM-DD)
-            max_results: Maximum number of results to return
-            sort_by: Sort order ('relevance', 'lastUpdatedDate', 'submittedDate')
-            start: Starting index for pagination
-
-        Returns:
-            List of paper dictionaries
-        """
-
         params = {
             'search_query': query,
             'start': start,
@@ -156,7 +144,6 @@ class ArxivReport:
                 raise ValueError("Malformed search query. Please check your search parameters.")
 
             papers = self._parse_arxiv_response(response.text)
-
             return papers
 
         except requests.exceptions.Timeout:
@@ -167,140 +154,55 @@ class ArxivReport:
             raise RuntimeError(f"Search failed: {str(e)}")
 
     def get_paper_by_id(self, arxiv_id: str) -> Optional[Dict]:
-        """
-        Get a specific paper by its arXiv ID.
-
-        Args:
-            arxiv_id: arXiv ID (e.g., '2301.12345')
-
-        Returns:
-            Paper dictionary or None if not found
-        """
         try:
             results = self.search(f'id:{arxiv_id}', max_results=1)
             return results[0] if results else None
         except Exception:
             return None
 
-    def _get_semantic_scholar_citations(self, arxiv_id: str, title: str) -> Optional[int]:
-        try:
-            if '/' in arxiv_id:
-                url = f"https://api.semanticscholar.org/graph/v1/paper/{arxiv_id}"
-            else:
-                url = f"https://api.semanticscholar.org/graph/v1/paper/arXiv:{arxiv_id}"
-
-            response = self.session.get(url, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                return data.get('citationCount', 0)
-
-            search_url = "https://api.semanticscholar.org/graph/v1/paper/search"
-            params = {
-                'query': title,
-                'fields': 'citationCount,title,arxivId',
-                'limit': 5
-            }
-
-            response = self.session.get(search_url, params=params, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                papers = data.get('data', [])
-                for paper in papers:
-                    if (paper.get('arxivId') == arxiv_id or 
-                            self._similar_titles(paper.get('title', ''), title)):
-                        return paper.get('citationCount', 0)
-
-            return None
-        except Exception:
-            return None
-
-    def _similar_titles(self, title1: str, title2: str, threshold: float = 0.8) -> bool:
-        """Check if two titles are similar enough to be the same paper."""
-        if not title1 or not title2:
-            return False
-
-        t1 = re.sub(r'[^\w\s]', '', title1.lower()).strip()
-        t2 = re.sub(r'[^\w\s]', '', title2.lower()).strip()
-
-        words1 = set(t1.split())
-        words2 = set(t2.split())
-
-        if len(words1) == 0 or len(words2) == 0:
-            return False
-
-        intersection = len(words1.intersection(words2))
-        union = len(words1.union(words2))
-
-        return intersection / union >= threshold
-
-    def _enrich_with_citations(self, papers: List[Dict]) -> List[Dict]:
-        """Enrich papers with citation counts from external sources."""
-        enriched_papers = []
-
-        for paper in papers:
-            enriched_paper = paper.copy()
-
-            if paper.get('arxiv_id') != 'N/A':
-                citation_count = self._get_semantic_scholar_citations(
-                    paper['arxiv_id'], 
-                    paper['title']
-                )
-
-                if citation_count is not None:
-                    enriched_paper['citation_count'] = citation_count
-                    enriched_paper['has_citations'] = True
-                else:
-                    enriched_paper['citation_count'] = 0
-                    enriched_paper['has_citations'] = False
-            else:
-                enriched_paper['citation_count'] = 0
-                enriched_paper['has_citations'] = False
-
-            enriched_papers.append(enriched_paper)
-
-        return enriched_papers
-
     def search_with_citations(self, query: str, start_date: Optional[str] = None, 
                               end_date: Optional[str] = None, max_results: int = 10, 
-                              sort_by: str = 'relevance') -> List[Dict]:
-        """
-        Search arXiv and enrich results with citation data from external sources.
-
-        Args:
-            query: Search query string
-            start_date: Start date filter (YYYY-MM-DD)
-            end_date: End date filter (YYYY-MM-DD)
-            max_results: Maximum number of results to return
-            sort_by: Sort order ('relevance', 'lastUpdatedDate', 'submittedDate')
-
-        Returns:
-            List of paper dictionaries with citation counts
-        """
+                              sort_by: str = 'relevance', max_citation_papers: int = 10) -> List[Dict]:
         papers = self.search(query, start_date, end_date, max_results, sort_by)
 
-        enriched_papers = self._enrich_with_citations(papers)
+        if not papers:
+            return papers
 
-        return enriched_papers
+        citation_papers = papers[:max_citation_papers]
+        logger.info(f"Enriching {len(citation_papers)} papers with citation data...")
+
+        try:
+            enriched_papers = self.citation_manager.get_citations_batch(citation_papers, max_workers=1)
+
+            if len(papers) > max_citation_papers:
+                remaining_papers = papers[max_citation_papers:]
+                for paper in remaining_papers:
+                    paper['citation_count'] = 0
+                    paper['has_citations'] = False
+                enriched_papers.extend(remaining_papers)
+
+            successful_citations = sum(1 for p in enriched_papers if p.get('has_citations', False))
+            logger.info(f"Successfully retrieved citations for {successful_citations}/{len(citation_papers)} papers")
+
+            return enriched_papers
+        except Exception as e:
+            logger.error(f"Citation enrichment failed: {str(e)}")
+            for paper in papers:
+                paper['citation_count'] = 0
+                paper['has_citations'] = False
+            return papers
 
     def get_popular_papers(self, query: str, start_date: Optional[str] = None,
                            end_date: Optional[str] = None, max_results: int = 10) -> List[Dict]:
-        """
-        Get papers sorted by popularity (citation count).
-
-        Args:
-            query: Search query string
-            start_date: Start date filter (YYYY-MM-DD)
-            end_date: End date filter (YYYY-MM-DD)
-            max_results: Maximum number of results to return
-
-        Returns:
-            List of papers sorted by citation count (descending)
-        """
-        initial_results = min(max_results * 3, 100)
+        initial_results = min(max_results * 3, 50)
+        max_citation_papers = min(initial_results, 15)
 
         papers = self.search_with_citations(
-            query, start_date, end_date, initial_results, 'relevance'
+            query, start_date, end_date, initial_results, 'relevance', max_citation_papers
         )
+
+        if not papers:
+            return papers
 
         papers_with_citations = [p for p in papers if p.get('has_citations', False)]
         papers_without_citations = [p for p in papers if not p.get('has_citations', False)]
@@ -313,6 +215,7 @@ class ArxivReport:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     reporter = ArxivReport()
 
     print("Testing basic search...")
@@ -324,4 +227,6 @@ if __name__ == "__main__":
     popular = reporter.get_popular_papers("neural networks", max_results=3)
     for paper in popular:
         citations = paper.get('citation_count', 'N/A')
-        print(f"- {paper['title'][:60]}... (Citations: {citations})")
+        has_citations = paper.get('has_citations', False)
+        status = "✓" if has_citations else "✗"
+        print(f"- {paper['title'][:60]}... (Citations: {citations} {status})")
