@@ -1,18 +1,13 @@
-[
-  "Mathematics",
-  "Computer Science",
-  "Physics",
-  "Statistics",
-  "Quantitative Biology",
-  "Quantitative Finance",
-  "Economics",
-  "Electrical Engineering",
-  "Astrophysics",
-  "Condensed Matter",
-  "High Energy Physics",
-  "Nonlinear Sciences",
-  "Nuclear Physics",
-  "General Relativity",
-  "Mathematical Physics",
-  "Quantum Physics"
-]
+{
+  "math": "Mathematics",
+  "cs": "Computer Science",
+  "physics": "Physics",
+  "stat": "Statistics",
+  "q-bio": "Quantitative Biology",
+  "q-fin": "Quantitative Finance",
+  "econ": "Economics",
+  "eess": "Electrical Engineering and Systems Science",
+  "astro-ph": "Astrophysics",
+  "cond-mat": "Condensed Matter Physics",
+  "nlin": "Nonlinear Sciences"
+}
