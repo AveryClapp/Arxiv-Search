@@ -61,21 +61,27 @@ class ArxivReport:
                 id_elem = entry.find('atom:id', namespaces)
                 if id_elem is not None:
                     paper['url'] = id_elem.text.strip()
-                    arxiv_id_match = re.search(r'(\d{4}\.\d{4,5})(v\d+)', 'N/A')
+                    new_format = re.search(r'/abs/(\d{4}\.\d{4,5})(v\d+)?$', paper['url'])
+                    old_format = re.search(r'/abs/([a-z-]+/\d{7})(v\d+)?$', paper['url'])
 
-                # Published date
+                    if new_format:
+                        paper['arxiv_id'] = new_format.group(1)
+                    elif old_format:
+                        paper['arxiv_id'] = old_format.group(1)
+                    else:
+                        paper['arxiv_id'] = 'N/A'
+
+
                 published_elem = entry.find('atom:published', namespaces)
                 if published_elem is not None:
-                    # Parse and format date
                     try:
                         pub_date = datetime.fromisoformat(published_elem.text.replace('Z', '+00:00'))
                         paper['published'] = pub_date.strftime('%Y-%m-%d')
                     except:
-                        paper['published'] = published_elem.text[:10]  # Just take YYYY-MM-DD part
+                        paper['published'] = published_elem.text[:10]
                 else:
                     paper['published'] = 'N/A'
 
-                # Updated date
                 updated_elem = entry.find('atom:updated', namespaces)
                 if updated_elem is not None:
                     try:
@@ -86,7 +92,6 @@ class ArxivReport:
                 else:
                     paper['updated'] = paper['published']
 
-                # Categories
                 categories = []
                 for category in entry.findall('atom:category', namespaces):
                     term = category.get('term')
@@ -95,15 +100,12 @@ class ArxivReport:
                 paper['category'] = ', '.join(categories) if categories else 'N/A'
                 paper['primary_category'] = categories[0] if categories else 'N/A'
 
-                # Abstract/Summary
                 summary_elem = entry.find('atom:summary', namespaces)
                 paper['summary'] = summary_elem.text.strip().replace('\n', ' ') if summary_elem is not None else 'N/A'
 
-                # DOI (if available)
                 doi_elem = entry.find('arxiv:doi', namespaces)
                 paper['doi'] = doi_elem.text.strip() if doi_elem is not None else None
 
-                # Comment (if available)
                 comment_elem = entry.find('arxiv:comment', namespaces)
                 paper['comment'] = comment_elem.text.strip() if comment_elem is not None else None
 
@@ -133,32 +135,26 @@ class ArxivReport:
             List of paper dictionaries
         """
 
-        # Build query parameters
         params = {
             'search_query': query,
             'start': start,
-            'max_results': min(max_results, 1000),  # arXiv API limits to 1000
+            'max_results': min(max_results, 1000),
             'sortBy': sort_by,
             'sortOrder': 'descending'
         }
 
-        # Add date filters if provided
         if start_date or end_date:
             date_filter = self._build_date_filter(start_date, end_date)
             if date_filter:
-                # Combine with existing query
                 params['search_query'] = f"({query}) AND ({date_filter})"
 
         try:
-            # Make request to arXiv API
             response = self.session.get(self.BASE_URL, params=params, timeout=30)
             response.raise_for_status()
 
-            # Check for API errors in XML
             if 'error' in response.text.lower() and 'malformed query' in response.text.lower():
                 raise ValueError("Malformed search query. Please check your search parameters.")
 
-            # Parse response
             papers = self._parse_arxiv_response(response.text)
 
             return papers
@@ -187,17 +183,17 @@ class ArxivReport:
             return None
 
     def _get_semantic_scholar_citations(self, arxiv_id: str, title: str) -> Optional[int]:
-        """Get citation count from Semantic Scholar API."""
         try:
-            # Try searching by arXiv ID first
-            url = f"https://api.semanticscholar.org/graph/v1/paper/arXiv:{arxiv_id}"
-            response = self.session.get(url, timeout=10)
+            if '/' in arxiv_id:
+                url = f"https://api.semanticscholar.org/graph/v1/paper/{arxiv_id}"
+            else:
+                url = f"https://api.semanticscholar.org/graph/v1/paper/arXiv:{arxiv_id}"
 
+            response = self.session.get(url, timeout=10)
             if response.status_code == 200:
                 data = response.json()
                 return data.get('citationCount', 0)
 
-            # If arXiv ID doesn't work, try searching by title
             search_url = "https://api.semanticscholar.org/graph/v1/paper/search"
             params = {
                 'query': title,
@@ -209,15 +205,12 @@ class ArxivReport:
             if response.status_code == 200:
                 data = response.json()
                 papers = data.get('data', [])
-
-                # Find matching paper by arXiv ID or similar title
                 for paper in papers:
                     if (paper.get('arxivId') == arxiv_id or 
                             self._similar_titles(paper.get('title', ''), title)):
                         return paper.get('citationCount', 0)
 
             return None
-
         except Exception:
             return None
 
@@ -226,11 +219,9 @@ class ArxivReport:
         if not title1 or not title2:
             return False
 
-        # Simple similarity check - normalize and compare
         t1 = re.sub(r'[^\w\s]', '', title1.lower()).strip()
         t2 = re.sub(r'[^\w\s]', '', title2.lower()).strip()
 
-        # Check if one title contains most words of the other
         words1 = set(t1.split())
         words2 = set(t2.split())
 
@@ -249,7 +240,6 @@ class ArxivReport:
         for paper in papers:
             enriched_paper = paper.copy()
 
-            # Try to get citation count from Semantic Scholar
             if paper.get('arxiv_id') != 'N/A':
                 citation_count = self._get_semantic_scholar_citations(
                     paper['arxiv_id'], 
@@ -286,10 +276,8 @@ class ArxivReport:
         Returns:
             List of paper dictionaries with citation counts
         """
-        # Get basic search results
         papers = self.search(query, start_date, end_date, max_results, sort_by)
 
-        # Enrich with citation data
         enriched_papers = self._enrich_with_citations(papers)
 
         return enriched_papers
@@ -308,39 +296,30 @@ class ArxivReport:
         Returns:
             List of papers sorted by citation count (descending)
         """
-        # Get more results initially to have better selection for sorting
         initial_results = min(max_results * 3, 100)
 
-        # Search with citation enrichment
         papers = self.search_with_citations(
             query, start_date, end_date, initial_results, 'relevance'
         )
 
-        # Sort by citation count (descending)
         papers_with_citations = [p for p in papers if p.get('has_citations', False)]
         papers_without_citations = [p for p in papers if not p.get('has_citations', False)]
 
-        # Sort papers with citations by count
         papers_with_citations.sort(key=lambda x: x.get('citation_count', 0), reverse=True)
 
-        # Combine: cited papers first, then uncited papers
         sorted_papers = papers_with_citations + papers_without_citations
 
-        # Return requested number of results
         return sorted_papers[:max_results]
 
 
 if __name__ == "__main__":
-    # Test the functionality
     reporter = ArxivReport()
 
-    # Test basic search
     print("Testing basic search...")
     results = reporter.search("machine learning", max_results=3)
     for paper in results:
         print(f"- {paper['title'][:60]}...")
 
-    # Test citation search
     print("\nTesting citation search...")
     popular = reporter.get_popular_papers("neural networks", max_results=3)
     for paper in popular:

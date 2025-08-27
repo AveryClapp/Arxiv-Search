@@ -134,7 +134,9 @@ def main(category: str, sub_category: str, author: str, title: str, start_date: 
                click.echo(f"   Citations: {paper['citation_count']}")
 
    except Exception as e:
+      import traceback
       click.echo(f"Error performing search: {str(e)}")
+      traceback.print_exc()
       raise click.Abort()
 
 @click.command()
