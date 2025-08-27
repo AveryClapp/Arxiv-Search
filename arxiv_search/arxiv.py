@@ -24,14 +24,16 @@ class ArxivReport:
         if start_date:
             try:
                 datetime.strptime(start_date, '%Y-%m-%d')
-                date_filters.append(f'submittedDate:[{start_date.replace("-", "")}* TO *]')
+                start_formatted = start_date.replace("-", "") + "0000"
+                date_filters.append(f'submittedDate:[{start_formatted}* TO *]')
             except ValueError:
                 raise ValueError(f"Invalid start date format: {start_date}. Use YYYY-MM-DD")
 
         if end_date:
             try:
                 datetime.strptime(end_date, '%Y-%m-%d')
-                date_filters.append(f'submittedDate:[* TO {end_date.replace("-", "")}*]')
+                end_formatted = end_date.replace("-", "") + "2359"
+                date_filters.append(f'submittedDate:[* TO {end_formatted}*]')
             except ValueError:
                 raise ValueError(f"Invalid end date format: {end_date}. Use YYYY-MM-DD")
 
@@ -199,19 +201,23 @@ class ArxivReport:
         Searches in batches across different time periods to find highly cited papers.
         """
         if not end_date:
-            end_date = "2020-12-31"  # Focus on papers old enough to have citations
+            end_date = datetime.datetime.today().strftime("%Y%m%d%H%M")
         if not start_date:
-            start_date = "1990-01-01"  # Go back far enough for landmark papers
+            start_date = "199501010000"
 
         logger.info(f"Searching for highly cited papers from {start_date} to {end_date}")
 
-        all_cited_papers = []
-        batch_size = 50
-        max_total_papers = min(max_results * 20, 300)  # Search more papers to find highly cited ones
+        all_papers_with_citations = []
+        batch_size = 30
+        max_batches = 8  # Search up to 240 papers total
 
-        # Search in batches to get a good sample of papers
-        for start_idx in range(0, max_total_papers, batch_size):
+        # Search in batches
+        for batch_num in range(max_batches):
+            start_idx = batch_num * batch_size
+
             try:
+                logger.info(f"Fetching batch {batch_num + 1}/{max_batches} (papers {start_idx+1}-{start_idx+batch_size})")
+
                 batch_papers = self.search(
                     query=query,
                     start_date=start_date,
@@ -222,36 +228,58 @@ class ArxivReport:
                 )
 
                 if not batch_papers:
+                    logger.info(f"No more papers found, stopping search")
                     break
 
-                logger.info(f"Processing batch {start_idx//batch_size + 1}, found {len(batch_papers)} papers")
+                logger.info(f"Found {len(batch_papers)} papers in batch {batch_num + 1}")
 
-                # Get citations for this batch
-                cited_batch = self.citation_manager.get_citations_batch(batch_papers, max_workers=1)
+                # Get citations for a subset of papers to save time
+                citation_papers = batch_papers[:20]  # Only process first 20 per batch
+                logger.info(f"Getting citations for {len(citation_papers)} papers...")
 
-                # Only keep papers with citations > 0
-                cited_papers = [p for p in cited_batch if p.get('citation_count', 0) > 0]
-                all_cited_papers.extend(cited_papers)
+                cited_batch = self.citation_manager.get_citations_batch(citation_papers, max_workers=1)
 
-                # If we have enough good papers, we can stop early
-                if len([p for p in all_cited_papers if p.get('citation_count', 0) >= 10]) >= max_results:
-                    logger.info(f"Found enough highly cited papers, stopping search")
+                # Add papers with any citations
+                papers_with_citations = [p for p in cited_batch if p.get('citation_count', 0) > 0]
+                if papers_with_citations:
+                    logger.info(f"Found {len(papers_with_citations)} papers with citations in this batch")
+                    all_papers_with_citations.extend(papers_with_citations)
+
+                # Add remaining papers without citation lookup (they'll have 0 citations)
+                remaining_papers = batch_papers[20:]
+                for paper in remaining_papers:
+                    paper['citation_count'] = 0
+                    paper['has_citations'] = False
+                all_papers_with_citations.extend(remaining_papers)
+
+                # If we have some good highly-cited papers, we can be more selective
+                high_cite_papers = [p for p in all_papers_with_citations if p.get('citation_count', 0) >= 5]
+                if len(high_cite_papers) >= max_results:
+                    logger.info(f"Found {len(high_cite_papers)} papers with 5+ citations, stopping early")
                     break
 
             except Exception as e:
-                logger.error(f"Error in batch {start_idx//batch_size + 1}: {str(e)}")
+                logger.error(f"Error in batch {batch_num + 1}: {str(e)}")
                 continue
 
+        if not all_papers_with_citations:
+            logger.warning("No papers found in historical search")
+            return []
+
         # Sort all papers by citation count
-        all_cited_papers.sort(key=lambda x: x.get('citation_count', 0), reverse=True)
+        all_papers_with_citations.sort(key=lambda x: x.get('citation_count', 0), reverse=True)
 
         # Return top papers
-        top_papers = all_cited_papers[:max_results]
+        top_papers = all_papers_with_citations[:max_results]
 
         if top_papers:
             highest_citations = top_papers[0].get('citation_count', 0)
-            avg_citations = sum(p.get('citation_count', 0) for p in top_papers) / len(top_papers)
-            logger.info(f"Found {len(top_papers)} highly cited papers. Highest: {highest_citations}, Average: {avg_citations:.1f}")
+            cited_papers = [p for p in top_papers if p.get('citation_count', 0) > 0]
+            if cited_papers:
+                avg_citations = sum(p.get('citation_count', 0) for p in cited_papers) / len(cited_papers)
+                logger.info(f"Returning {len(top_papers)} papers. Highest: {highest_citations}, Average: {avg_citations:.1f}")
+            else:
+                logger.info(f"Returning {len(top_papers)} papers, but none have citation data")
 
         return top_papers
     def get_popular_papers(self, query: str, start_date: Optional[str] = None,

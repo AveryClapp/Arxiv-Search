@@ -2,6 +2,7 @@ import click
 import json
 from pathlib import Path
 from arxiv_search.arxiv import ArxivReport
+from arxiv_search.spinner import spinner_context
 import sys
 
 field_map = {
@@ -83,12 +84,11 @@ def format_paper_output(paper: dict, index: int, show_citations: bool = False) -
 @click.option('--start-date', type=str, default=None, help="Start date of range of papers (YYYY-MM-DD)")
 @click.option('--end-date', type=str, default=None, help="End date of range of papers (YYYY-MM-DD)")
 @click.option('--citations', is_flag=True, default=False, help="Show citation counts for papers")
-@click.option('--sort-by-citations', is_flag=True, default=False, help="Find the most highly cited papers (searches historical data)")
 @click.option('--max-results', type=int, default=10, help="Maximum number of results to return (default: 10)")
 @click.option('--timeout', type=int, default=30, help="Timeout for citation lookup in seconds (default: 30)")
 @click.option('--verbose', is_flag=True, default=False, help="Show detailed progress information")
 def main(category: str, sub_category: str, author: str, title: str, start_date: str, end_date: str,
-         citations: bool, sort_by_citations: bool, max_results: int, timeout: int, verbose: bool) -> None:
+         citations: bool, max_results: int, timeout: int, verbose: bool) -> None:
 
    if category and sub_category:
       click.echo("Error: --category and --sub-category cannot be used together.")
@@ -134,30 +134,16 @@ def main(category: str, sub_category: str, author: str, title: str, start_date: 
 
       if verbose:
          click.echo(f"Search query: {search_query}")
-         if citations or sort_by_citations:
+         if citations:
             click.echo("Citation lookup enabled - this may take longer...")
-            if sort_by_citations:
-               click.echo("Searching historical papers for most cited works...")
 
-      if sort_by_citations:
-         with click.progressbar(length=max_results, 
-                                label='Finding most cited papers') as bar:
-            results = searcher.get_historical_popular_papers(
-               query=search_query,
-               start_date=start_date,
-               end_date=end_date,
-               max_results=max_results
-            )
-            bar.update(len(results))
-      elif citations:
-         with click.progressbar(length=max_results, 
-                                label='Fetching papers with citations') as bar:
+      if citations:
+         with spinner_context('Finding most cited papers'):
             results = searcher.get_popular_papers(
                query=search_query,
                start_date=start_date,
                max_results=max_results
             )
-            bar.update(len(results))
       else:
          results = searcher.search(
             query=search_query,
@@ -297,6 +283,5 @@ cli.add_command(main, name='search')
 cli.add_command(categories, name='categories') 
 cli.add_command(domains, name='domains')
 cli.add_command(get_paper, name='get')
-
 if __name__ == '__main__':
    cli()

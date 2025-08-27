@@ -17,7 +17,6 @@ This tool fixes that.
 
 - **Search by topic, author, or keywords**
 - **Filter by date ranges and categories**
-- **Sort by citation count** to find influential papers
 - **Citation data** from multiple sources (OpenCitations, CrossRef, Semantic Scholar)
 - **Historical search** to discover landmark papers
 - **Clean command-line interface**
@@ -36,8 +35,6 @@ pip install -e .
 # Basic search
 arxiv-search --category math --max-results 10
 
-# Find most cited papers in a field
-arxiv-search --category math --sort-by-citations
 
 # Search specific topics with citations
 arxiv-search --title "neural networks" --citations
@@ -61,7 +58,6 @@ arxiv-search --author "LeCun"                # Search by author
 
 ```bash
 arxiv-search --category math --citations              # Show citation counts
-arxiv-search --category physics --sort-by-citations   # Most cited papers
 ```
 
 ### Date Filtering
@@ -74,11 +70,8 @@ arxiv-search --title "transformers" --start-date 2017-01-01 --end-date 2019-12-3
 ### Discovery Tools
 
 ```bash
-# Find landmark papers in mathematics
-arxiv-search --category math --sort-by-citations --max-results 20
-
 # Discover influential AI research
-arxiv-search --sub-category cs.AI --sort-by-citations --start-date 2000-01-01
+arxiv-search --sub-category cs.AI --citations --start-date 2000-01-01
 ```
 
 ## Available Categories
@@ -107,7 +100,7 @@ Citation counts may vary between sources. Papers without DOIs or recent papers m
 **Find the most cited math papers:**
 
 ```bash
-arxiv-search --category math --sort-by-citations --max-results 15
+arxiv-search --category math --max-results 15
 ```
 
 **Discover recent AI breakthroughs:**
@@ -119,7 +112,7 @@ arxiv-search --sub-category cs.AI --start-date 2020-01-01 --citations
 **Research a specific topic:**
 
 ```bash
-arxiv-search --title "attention mechanism" --sort-by-citations
+arxiv-search --title "attention mechanism" --citations
 ```
 
 **Papers by a specific author:**
@@ -130,22 +123,20 @@ arxiv-search --author "Geoffrey Hinton" --citations --max-results 10
 
 ## Options
 
-| Flag                  | Description                                       |
-| --------------------- | ------------------------------------------------- |
-| `--category`          | High-level domain (math, cs, physics, etc.)       |
-| `--sub-category`      | Specific field (cs.AI, math.NT, etc.)             |
-| `--title`             | Search paper titles                               |
-| `--author`            | Search by author name                             |
-| `--start-date`        | Start date (YYYY-MM-DD)                           |
-| `--end-date`          | End date (YYYY-MM-DD)                             |
-| `--citations`         | Show citation counts                              |
-| `--sort-by-citations` | Find most cited papers (searches historical data) |
-| `--max-results`       | Number of results (default: 10)                   |
-| `--verbose`           | Show detailed progress                            |
+| Flag             | Description                                 |
+| ---------------- | ------------------------------------------- |
+| `--category`     | High-level domain (math, cs, physics, etc.) |
+| `--sub-category` | Specific field (cs.AI, math.NT, etc.)       |
+| `--title`        | Search paper titles                         |
+| `--author`       | Search by author name                       |
+| `--start-date`   | Start date (YYYY-MM-DD)                     |
+| `--end-date`     | End date (YYYY-MM-DD)                       |
+| `--citations`    | Show citation counts                        |
+| `--max-results`  | Number of results (default: 10)             |
+| `--verbose`      | Show detailed progress                      |
 
 ## Notes
 
-- `--sort-by-citations` searches historical papers (1990-2020) to find truly influential work
 - Citation lookups add ~2-3 seconds per paper due to API rate limits
 - Recent papers may show low citation counts as they haven't had time to accumulate citations
 - Some arXiv papers lack DOIs and may not have citation data available
