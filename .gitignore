@@ -1,2 +1,3 @@
 .python-version
 arxiv_search.egg-info/
+*/__pycache__/*
